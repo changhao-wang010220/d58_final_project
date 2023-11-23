@@ -1,60 +1,127 @@
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/types.h>
 #include <arpa/inet.h>
-
-#define PORT 8080
-#define BUFFER_SIZE 1024
-
-int main() {
-    int server_socket, client_socket;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_size = sizeof(client_addr);
-    char buffer[BUFFER_SIZE] = {0};
-
-    // Create socket
-    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
+ 
+#define BUF_SIZE  (8192)
+#define PORT 10001
+ 
+unsigned char fileBuf[BUF_SIZE];
+ 
+/*
+ * send file
+ */
+void file_server(const char *path) {
+    int skfd, cnfd;
+    FILE *fp = NULL;
+    struct sockaddr_in sockAddr, cltAddr;
+    socklen_t addrLen;
+    unsigned int fileSize;
+    int size, netSize;
+    char buf[10];
+ 
+    if( !path ) {
+        printf("file server: file path error!\n");
+        return;
     }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
-
-    // Bind the socket
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Bind failed");
-        exit(EXIT_FAILURE);
+ 
+    //创建tcp socket
+    if((skfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket");
+        exit(1);
+    } else {
+        printf("socket success!\n");
     }
-
-    // Listen for incoming connections
-    if (listen(server_socket, 5) == -1) {
-        perror("Listen failed");
-        exit(EXIT_FAILURE);
+ 
+    //创建结构  绑定地址端口号
+    memset(&sockAddr, 0, sizeof(struct sockaddr_in));
+    sockAddr.sin_family = AF_INET;
+    sockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    sockAddr.sin_port = htons(PORT);
+ 
+    //bind
+    if(bind(skfd, (struct sockaddr *)(&sockAddr), sizeof(struct sockaddr)) < 0) {
+        perror("Bind");
+        exit(1);
+    } else {
+        printf("bind success!\n");
     }
-
-    printf("Server listening on port %d...\n", PORT);
-
-    // Accept a connection (1st step of the handshake)
-    if ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_size)) == -1) {
-        perror("Accept failed");
-        exit(EXIT_FAILURE);
+ 
+    //listen   监听  最大4个用户
+    if(listen(skfd, 4) < 0) {
+        perror("Listen");
+        exit(1);
+    } else {
+        printf("Server listening on port %d...\n", PORT);
     }
-
-    printf("Connection accepted from client %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
-    // Send acknowledgment (2nd step of the handshake)
-    send(client_socket, "ACK", 3, 0);
-
-    // Receive acknowledgment (3rd step of the handshake)
-    recv(client_socket, buffer, sizeof(buffer), 0);
-    printf("Received acknowledgment from client: %s\n", buffer);
-
-    // Close sockets
-    close(client_socket);
-    close(server_socket);
-
+ 
+    /* 调用accept,服务器端一直阻塞，直到客户程序与其建立连接成功为止*/
+    addrLen = sizeof(struct sockaddr_in);
+    if((cnfd = accept(skfd, (struct sockaddr *)(&cltAddr), &addrLen)) < 0) {
+        perror("Accept");
+        exit(1);
+    } else {
+        printf("accept success!\n");
+    }
+ 
+    fp = fopen(path, "r");
+    if( fp == NULL ) {
+        perror("fopen");
+        close(cnfd);
+        close(skfd);
+        return;
+    }
+ 
+    fseek(fp, 0, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+ 
+    if(write(cnfd, (unsigned char *)&fileSize, 4) != 4) {
+        perror("write");
+        close(cnfd);
+        close(skfd);
+        exit(1);
+    }
+ 
+    if( read(cnfd, buf, 2) != 2) {
+        perror("read");
+        close(cnfd);
+        close(skfd);
+        exit(1);
+    }
+ 
+    while( ( size = fread(fileBuf, 1, BUF_SIZE, fp) ) > 0 ) {
+        unsigned int size2 = 0;
+        while( size2 < size ) {
+            if( (netSize = write(cnfd, fileBuf + size2, size - size2) ) < 0 ) {
+                perror("write");
+                close(cnfd);
+                close(skfd);
+                exit(1);
+            }
+            size2 += netSize;
+        }
+    }
+ 
+    fclose(fp);
+    close(cnfd);
+    close(skfd);
+}
+ 
+int main(int argc, char **argv) {
+    if( argc < 2 ) {
+        printf("file server: argument error!\n");
+        printf("file_server /tmp/temp\n");
+        return -1;
+    }
+ 
+    file_server(argv[1]);
+ 
     return 0;
 }
