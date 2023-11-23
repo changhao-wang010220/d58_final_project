@@ -1,67 +1,60 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
 #include <string.h>
 #include <unistd.h>
-#include <time.h>
-#define SERVER_PORT 5432
-#define MAX_PENDING 5
-#define MAX_LINE 256
+#include <arpa/inet.h>
+
+#define PORT 8080
+#define BUFFER_SIZE 1024
+
 int main() {
-    struct sockaddr_in sin, client;
-    char buf[MAX_LINE];
-    int len;
-    int s, new_s;
-    time_t t;
-    struct tm tm;
-    char str[MAX_LINE];
-    /* build address data structure */
-    bzero((char *)&sin, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(SERVER_PORT);
-    /* setup passive open */
-    if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("simplex-talk: socket");
-        exit(1);
-    }
-    if ((bind(s, (struct sockaddr *)&sin, sizeof(sin))) < 0) {
-        perror("simplex-talk: bind");
-        exit(1);
+    int server_socket, client_socket;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_size = sizeof(client_addr);
+    char buffer[BUFFER_SIZE] = {0};
+
+    // Create socket
+    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    listen(s, MAX_PENDING);
-    /* wait for connection, then receive and print text */
-    
-    while(1) {
-        if ((new_s = accept(s, (struct sockaddr *)&sin, &len)) < 0) {
-            perror("simplex-talk: accept");
-            exit(1);
-        }
-        while (len = recv(new_s, buf, sizeof(buf), 0)) {
-            //print out the info received from client
-            fputs(buf, stdout);
-            
-            //set the time
-            t = time(NULL);
-            tm = *localtime(&t);
-            sprintf(str, "server received time: %d-%02d-%02d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
 
-            //concat the time string with the received info
-            strcat(buf, str);
-            //send the new info to client
-            send(new_s, buf, MAX_LINE, 0);
-            //if received "Ciao-Ciao", end the connection (break out the infinit loop, then end)
-            if (strncmp("Ciao-Ciao", buf, 9) == 0) {
-                fprintf(stdout, "End the connection...\n");
-                break;
-            }
-        }
-        
-        //close the socket
-        close(new_s);
+    // Bind the socket
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
     }
+
+    // Listen for incoming connections
+    if (listen(server_socket, 5) == -1) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server listening on port %d...\n", PORT);
+
+    // Accept a connection (1st step of the handshake)
+    if ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_size)) == -1) {
+        perror("Accept failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connection accepted from client %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+    // Send acknowledgment (2nd step of the handshake)
+    send(client_socket, "ACK", 3, 0);
+
+    // Receive acknowledgment (3rd step of the handshake)
+    recv(client_socket, buffer, sizeof(buffer), 0);
+    printf("Received acknowledgment from client: %s\n", buffer);
+
+    // Close sockets
+    close(client_socket);
+    close(server_socket);
+
+    return 0;
 }

@@ -1,68 +1,49 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
 #include <string.h>
 #include <unistd.h>
-#define SERVER_PORT 5432
-#define MAX_LINE 256
+#include <arpa/inet.h>
 
-int main(int argc, char * argv[]) {
-    FILE *fp;
-    struct hostent *hp;
-    struct sockaddr_in sin;
-    char *host;
-    char buf[MAX_LINE];
-    int s;
-    int len;
-    if (argc==2) {
-        host = argv[1];
-    } else {
-        fprintf(stderr, "usage: simplex-talk host\n");
-        exit(1);
-    }
-    /* translate host name into peer’s IP address */
-    hp = gethostbyname(host);
-    if (!hp) {
-        fprintf(stderr, "simplex-talk: unknown host: %s\n", host);
-        exit(1);
-    }
-    /* build address data structure */
-    bzero((char *)&sin, sizeof(sin));
-    sin.sin_family = AF_INET;
-    bcopy(hp->h_addr, (char *)&sin.sin_addr, hp->h_length);
-    sin.sin_port = htons(SERVER_PORT);
-    /* active open */
-    if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("simplex-talk: socket");
-        exit(1);
+#define PORT 8080
+#define SERVER_IP "127.0.0.1"
+#define BUFFER_SIZE 1024
+
+int main() {
+    int client_socket;
+    struct sockaddr_in server_addr;
+    char buffer[BUFFER_SIZE] = {0};
+
+    // Create socket
+    if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-        perror("simplex-talk: connect");
-        close(s);
-        exit(1);
-    }
-    
-    /* main loop: get and send lines of text */
-    while (fgets(buf, sizeof(buf), stdin)) {
-        buf[MAX_LINE-1] = '\0';
-        len = strlen(buf) + 1;
-        //send the info to the server
-        send(s, buf, len, 0);
-        fprintf(stdout, "info send\n");
-        
-        //receive info from server
-        recv(s, buf, MAX_LINE, 0);
-        fprintf(stdout, "server: ");
-        fputs(buf, stdout);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
 
-        //if received "Ciao-Ciao", end the connection (break out the infinit loop, then end)
-        if (strncmp("Ciao-Ciao", buf, 9) == 0) {
-            fprintf(stdout, "Client end the connection...\n");
-            break;
-        }
+    // Convert IPv4 and IPv6 addresses from text to binary form
+    if (inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr) <= 0) {
+        perror("Invalid address or address not supported");
+        exit(EXIT_FAILURE);
     }
+
+    // Connect to the server (1st step of the handshake)
+    if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Receive acknowledgment (2nd step of the handshake)
+    recv(client_socket, buffer, sizeof(buffer), 0);
+    printf("Received acknowledgment from server: %s\n", buffer);
+
+    // Send acknowledgment (3rd step of the handshake)
+    send(client_socket, "ACK", 3, 0);
+    printf("Acknowledgment sent to server\n");
+
+    // Close the socket
+    close(client_socket);
+
+    return 0;
 }
