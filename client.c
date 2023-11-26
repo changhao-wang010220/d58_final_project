@@ -21,7 +21,6 @@ void file_client(const char *ip, const char *path) {
     unsigned int fileSize, fileSize2;
     int size, nodeSize;
  
-    //创建tcp socket
     if((client_socket=socket(AF_INET,SOCK_STREAM,0)) < 0) {
         perror("socket");
         exit(1);
@@ -29,7 +28,6 @@ void file_client(const char *ip, const char *path) {
         printf("socket success!\n");
     }
  
-    //创建结构设定待连接的服务器地址端口号
     sockAddr.sin_family = AF_INET;
     sockAddr.sin_port = htons(PORT);
     // Convert IPv4 and IPv6 addresses from text to binary form

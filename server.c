@@ -31,7 +31,6 @@ void file_server(const char *path) {
         return;
     }
  
-    //创建tcp socket
     if((skfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         exit(1);
@@ -39,7 +38,6 @@ void file_server(const char *path) {
         printf("socket success!\n");
     }
  
-    //创建结构  绑定地址端口号
     memset(&sockAddr, 0, sizeof(struct sockaddr_in));
     sockAddr.sin_family = AF_INET;
     sockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -53,7 +51,6 @@ void file_server(const char *path) {
         printf("bind success!\n");
     }
  
-    //listen   监听  最大4个用户
     if(listen(skfd, 4) < 0) {
         perror("Listen");
         exit(1);
@@ -61,7 +58,6 @@ void file_server(const char *path) {
         printf("Server listening on port %d...\n", PORT);
     }
  
-    /* 调用accept,服务器端一直阻塞，直到客户程序与其建立连接成功为止*/
     addrLen = sizeof(struct sockaddr_in);
     if((cnfd = accept(skfd, (struct sockaddr *)(&cltAddr), &addrLen)) < 0) {
         perror("Accept");
