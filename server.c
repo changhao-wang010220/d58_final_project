@@ -53,17 +53,20 @@ int setup_socket() {
 }
 
 /*
- * Function to receive file path from the client
+ * Function to receive file paths from the client
  */
-char *receive_file_path(int cnfd) {
-    static char path[256];  // Assuming a maximum file path length of 255 characters
-
-    if (read(cnfd, path, sizeof(path)) < 0) {
+void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char *storePath, size_t storePathSize) {
+    // Receive source path from the client
+    if (read(cnfd, sourcePath, sourcePathSize) < 0) {
         perror("read");
         exit(1);
     }
 
-    return path;
+    // Receive store path from the client
+    if (read(cnfd, storePath, storePathSize) < 0) {
+        perror("read");
+        exit(1);
+    }
 }
 
 /*
@@ -76,11 +79,14 @@ void *handle_client(void *arg) {
     int size, netSize;
     char buf[10];
 
-    // Receive file path from the client
-    char *path = receive_file_path(cnfd);
-    printf("Received file path: %s\n", path);
+    // Receive file paths from the client
+    char sourcePath[256];
+    char storePath[256];
+    receive_file_paths(cnfd, sourcePath, sizeof(sourcePath), storePath, sizeof(storePath));
+    printf("Received source path: %s\n", sourcePath);
+    printf("Received store path: %s\n", storePath);
 
-    fp = fopen(path, "r");
+    fp = fopen(sourcePath, "r");
     if (fp == NULL) {
         perror("fopen");
         close(cnfd);
@@ -127,6 +133,8 @@ int main() {
     int skfd = setup_socket();
 
     while (1) {
+        
+
         int cnfd;
         struct sockaddr_in cltAddr;
         socklen_t addrLen = sizeof(struct sockaddr_in);
