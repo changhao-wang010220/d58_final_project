@@ -8,7 +8,7 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
-#include <pthread.h>
+#include <sys/wait.h>
 
 #define BUF_SIZE (8192)
 #define PORT 10001
@@ -70,10 +70,9 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
 }
 
 /*
- * send file
+ * Function to handle a client connection
  */
-void *handle_client(void *arg) {
-    int cnfd = *((int *)arg);
+void handle_client(int cnfd) {
     FILE *fp = NULL;
     unsigned int fileSize;
     int size, netSize;
@@ -90,7 +89,7 @@ void *handle_client(void *arg) {
     if (fp == NULL) {
         perror("fopen");
         close(cnfd);
-        pthread_exit(NULL);
+        exit(1);
     }
 
     fseek(fp, 0, SEEK_END);
@@ -101,14 +100,14 @@ void *handle_client(void *arg) {
         perror("write");
         close(cnfd);
         fclose(fp);
-        pthread_exit(NULL);
+        exit(1);
     }
 
     if (read(cnfd, buf, 2) != 2) {
         perror("read");
         close(cnfd);
         fclose(fp);
-        pthread_exit(NULL);
+        exit(1);
     }
 
     while ((size = fread(fileBuf, 1, BUF_SIZE, fp)) > 0) {
@@ -118,7 +117,7 @@ void *handle_client(void *arg) {
                 perror("write");
                 close(cnfd);
                 fclose(fp);
-                pthread_exit(NULL);
+                exit(1);
             }
             size2 += netSize;
         }
@@ -126,15 +125,13 @@ void *handle_client(void *arg) {
 
     fclose(fp);
     close(cnfd);
-    pthread_exit(NULL);
+    exit(0);
 }
 
 int main() {
     int skfd = setup_socket();
 
     while (1) {
-        
-
         int cnfd;
         struct sockaddr_in cltAddr;
         socklen_t addrLen = sizeof(struct sockaddr_in);
@@ -147,16 +144,19 @@ int main() {
             printf("accept success!\n");
         }
 
-        // Create a new thread to handle the client
-        pthread_t thread;
-        if (pthread_create(&thread, NULL, handle_client, &cnfd) != 0) {
-            perror("pthread_create");
+        // Create a new process to handle the client
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
             close(cnfd);
             continue;
+        } else if (pid == 0) { // Child process
+            close(skfd); // Close the listener in the child process
+            handle_client(cnfd);
+        } else { // Parent process
+            close(cnfd); // Close the connection in the parent process
+            // Optionally, you can add code here to handle the parent process logic
         }
-
-        // Detach the thread so it can automatically clean up resources when it finishes
-        pthread_detach(thread);
     }
 
     close(skfd);
