@@ -61,7 +61,7 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
         perror("read");
         exit(1);
     }
-    
+
     // Receive source path from the client
     if (read(cnfd, sourcePath, sourcePathLen) != sourcePathLen) {
         perror("read");
@@ -82,24 +82,12 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
     }
 }
 
-
 /*
- * Function to handle client connections
+ * Function to send the file to the client
  */
-void handle_client(int cnfd) {
-    FILE *fp = NULL;
-    unsigned int fileSize;
-    int size, netSize;
-    char buf[10];
+void send_file_to_client(int cnfd, const char *sourcePath) {
+    FILE *fp = fopen(sourcePath, "r");
 
-    // Receive file paths from the client
-    char sourcePath[256];
-    char storePath[256];
-    receive_file_paths(cnfd, sourcePath, sizeof(sourcePath), storePath, sizeof(storePath));
-    printf("Received source path: %s\n", sourcePath);
-    printf("Received store path: %s\n", storePath);
-
-    fp = fopen(sourcePath, "r");
     if (fp == NULL) {
         perror("fopen");
         close(cnfd);
@@ -107,40 +95,47 @@ void handle_client(int cnfd) {
     }
 
     fseek(fp, 0, SEEK_END);
-    fileSize = ftell(fp);
+    unsigned int fileSize = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    if (write(cnfd, (unsigned char *)&fileSize, 4) != 4) {
+    if (write(cnfd, (unsigned char *)&fileSize, sizeof(fileSize)) != sizeof(fileSize)) {
         perror("write");
         close(cnfd);
         fclose(fp);
         exit(1);
     }
 
-    if (read(cnfd, buf, 2) != 2) {
-        perror("read");
-        close(cnfd);
-        fclose(fp);
-        exit(1);
-    }
-
-    while ((size = fread(fileBuf, 1, BUF_SIZE, fp)) > 0) {
-        unsigned int size2 = 0;
-        while (size2 < size) {
-            if ((netSize = write(cnfd, fileBuf + size2, size - size2)) < 0) {
-                perror("write");
-                close(cnfd);
-                fclose(fp);
-                exit(1);
-            }
-            size2 += netSize;
+    size_t bytesRead;
+    while ((bytesRead = fread(fileBuf, 1, sizeof(fileBuf), fp)) > 0) {
+        if (write(cnfd, fileBuf, bytesRead) < 0) {
+            perror("write");
+            close(cnfd);
+            fclose(fp);
+            exit(1);
         }
     }
 
     fclose(fp);
+}
+
+/*
+ * Function to handle client connections
+ */
+void handle_client(int cnfd) {
+    // Receive file paths from the client
+    char sourcePath[256];
+    char storePath[256];
+    receive_file_paths(cnfd, sourcePath, sizeof(sourcePath), storePath, sizeof(storePath));
+    printf("Received source path: %s\n", sourcePath);
+    printf("Received store path: %s\n", storePath);
+
+    // Send the file to the client
+    send_file_to_client(cnfd, sourcePath);
+
     close(cnfd);
     exit(0);
 }
+
 
 int main() {
     int skfd = setup_socket();
