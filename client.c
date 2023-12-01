@@ -26,31 +26,156 @@ void handle_ctrl_c(int signal) {
 /*
  * Function to send file paths to the server
  */
+/*
+ * Function to send file paths to the server
+ */
 void send_file_paths(const char *sourcePath, const char *storePath) {
     // Send source path to the server
-    if (write(client_socket, sourcePath, strlen(sourcePath) + 1) < 0) {
+    size_t sourcePathLen = strlen(sourcePath) + 1;
+    if (write(client_socket, &sourcePathLen, sizeof(size_t)) != sizeof(size_t)) {
+        perror("write");
+        close(client_socket);
+        exit(1);
+    }
+    if (write(client_socket, sourcePath, sourcePathLen) != sourcePathLen) {
         perror("write");
         close(client_socket);
         exit(1);
     }
 
     // Send store path to the server
-    if (write(client_socket, storePath, strlen(storePath) + 1) < 0) {
+    size_t storePathLen = strlen(storePath) + 1;
+    if (write(client_socket, &storePathLen, sizeof(size_t)) != sizeof(size_t)) {
+        perror("write");
+        close(client_socket);
+        exit(1);
+    }
+    if (write(client_socket, storePath, storePathLen) != storePathLen) {
         perror("write");
         close(client_socket);
         exit(1);
     }
 }
 
+
 /*
  * Function to receive the file from the server
  */
-void file_client(const char *ip) {
+void receive_file(const char *storePath) {
     FILE *fp = NULL;
     unsigned int fileSize;
     int size, netSize;
     char buf[10];
 
+    size = read(client_socket, (unsigned char *)&fileSize, 4);
+    if (size != 4) {
+        printf("file size error!\n");
+        return;
+    }
+    printf("file size:%d\n", fileSize);
+
+    if ((size = write(client_socket, "OK", 2)) < 0) {
+        perror("write");
+        return;
+    }
+
+    fp = fopen(storePath, "w");
+    if (fp == NULL) {
+        perror("fopen");
+        return;
+    }
+
+    unsigned int fileSize2 = 0;
+    while (fileSize2 < fileSize) {
+        memset(fileBuf, 0, sizeof(fileBuf));
+        size = read(client_socket, fileBuf, sizeof(fileBuf));
+        if (size <= 0) {
+            perror("read");
+            fclose(fp);
+            close(client_socket);
+            exit(1);
+        }
+
+        unsigned int size2 = 0;
+        while (size2 < size) {
+            if ((netSize = fwrite(fileBuf + size2, 1, size - size2, fp)) < 0) {
+                perror("write");
+                fclose(fp);
+                close(client_socket);
+                exit(1);
+            }
+            size2 += netSize;
+        }
+        fileSize2 += size;
+    }
+
+    fclose(fp);
+}
+
+/*
+ * Function to send the file to the server
+ */
+void send_file(const char *sourcePath) {
+    FILE *fp = NULL;
+    unsigned int fileSize;
+    int size, netSize;
+    char buf[10];
+
+    fp = fopen(sourcePath, "r");
+    if (fp == NULL) {
+        perror("fopen");
+        close(client_socket);
+        exit(1);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (write(client_socket, (unsigned char *)&fileSize, 4) != 4) {
+        perror("write");
+        close(client_socket);
+        fclose(fp);
+        exit(1);
+    }
+
+    if ((size = read(client_socket, buf, 2)) != 2 || strncmp(buf, "OK", 2) != 0) {
+        perror("read");
+        close(client_socket);
+        fclose(fp);
+        exit(1);
+    }
+
+    while (fileSize > 0) {
+        size = fread(fileBuf, 1, sizeof(fileBuf), fp);
+        if (size <= 0) {
+            perror("read");
+            fclose(fp);
+            close(client_socket);
+            exit(1);
+        }
+
+        unsigned int size2 = 0;
+        while (size2 < size) {
+            if ((netSize = write(client_socket, fileBuf + size2, size - size2)) < 0) {
+                perror("write");
+                fclose(fp);
+                close(client_socket);
+                exit(1);
+            }
+            size2 += netSize;
+        }
+        fileSize -= size;
+    }
+
+    fclose(fp);
+}
+
+
+/*
+ * Function to handle client based on mode
+ */
+void handle_client_mode(char mode, const char *ip) {
     if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         exit(1);
@@ -76,75 +201,66 @@ void file_client(const char *ip) {
     // Set up a signal handler for Ctrl+C
     signal(SIGINT, handle_ctrl_c);
 
-    while (1) {
+    char sourcePath[256];
+    char storePath[256];
+
+    if (mode == 'r') {
         // Read source path from standard input
-        char sourcePath[256];
         printf("Enter source path (Ctrl+C to exit): ");
         if (fgets(sourcePath, sizeof(sourcePath), stdin) == NULL) {
-            break;  // Break if EOF (Ctrl+C)
+            exit(0);  // Break if EOF (Ctrl+C)
         }
         sourcePath[strcspn(sourcePath, "\n")] = '\0';  // Remove newline character
 
         // Read store path from standard input
-        char storePath[256];
         printf("Enter store path: ");
         if (fgets(storePath, sizeof(storePath), stdin) == NULL) {
-            break;  // Break if EOF (Ctrl+C)
+            exit(0);  // Break if EOF (Ctrl+C)
         }
         storePath[strcspn(storePath, "\n")] = '\0';  // Remove newline character
 
-        // Send file paths to the server
+        // Request and receive file from the server
         send_file_paths(sourcePath, storePath);
-
-        size = read(client_socket, (unsigned char *)&fileSize, 4);
-        if (size != 4) {
-            printf("file size error!\n");
-            break;
+        receive_file(storePath);
+    } else if (mode == 's') {
+        // Read source path from standard input
+        printf("Enter source path (Ctrl+C to exit): ");
+        if (fgets(sourcePath, sizeof(sourcePath), stdin) == NULL) {
+            exit(0);  // Break if EOF (Ctrl+C)
         }
-        printf("file size:%d\n", fileSize);
+        sourcePath[strcspn(sourcePath, "\n")] = '\0';  // Remove newline character
 
-        if ((size = write(client_socket, "OK", 2)) < 0) {
-            perror("write");
-            break;
+        // Read store path from standard input
+        printf("Enter store path: ");
+        if (fgets(storePath, sizeof(storePath), stdin) == NULL) {
+            exit(0);  // Break if EOF (Ctrl+C)
         }
+        storePath[strcspn(storePath, "\n")] = '\0';  // Remove newline character
 
-        fp = fopen(storePath, "w");
-        if (fp == NULL) {
-            perror("fopen");
-            break;
-        }
-
-        unsigned int fileSize2 = 0;
-        while (memset(fileBuf, 0, sizeof(fileBuf)), (size = read(client_socket, fileBuf, sizeof(fileBuf))) > 0) {
-            unsigned int size2 = 0;
-            while (size2 < size) {
-                if ((netSize = fwrite(fileBuf + size2, 1, size - size2, fp)) < 0) {
-                    perror("write");
-                    fclose(fp);
-                    close(client_socket);
-                    exit(1);
-                }
-                size2 += netSize;
-            }
-            fileSize2 += size;
-            if (fileSize2 >= fileSize) {
-                break;
-            }
-        }
-
-        fclose(fp);
+        // Send file to the server
+        send_file_paths(sourcePath, storePath);
+        send_file(sourcePath);
+    } else {
+        printf("Invalid mode. Use -r for receiving or -s for sending.\n");
     }
 
     close(client_socket);
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        printf("file client: argument error!\n");
+    if (argc != 3) {
+        printf("Usage: %s <-r/-s> <ip_address>\n", argv[0]);
         return -1;
     }
 
-    file_client(argv[1]);
+    char mode = argv[1][1];
+
+    if (mode != 'r' && mode != 's') {
+        printf("Invalid mode. Use -r for receiving or -s for sending.\n");
+        return -1;
+    }
+
+    handle_client_mode(mode, argv[2]);
 
     return 0;
 }

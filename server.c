@@ -8,7 +8,6 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
 
 #define BUF_SIZE (8192)
 #define PORT 10001
@@ -56,21 +55,36 @@ int setup_socket() {
  * Function to receive file paths from the client
  */
 void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char *storePath, size_t storePathSize) {
+    // Receive source path length from the client
+    size_t sourcePathLen;
+    if (read(cnfd, &sourcePathLen, sizeof(size_t)) != sizeof(size_t)) {
+        perror("read");
+        exit(1);
+    }
+    
     // Receive source path from the client
-    if (read(cnfd, sourcePath, sourcePathSize) < 0) {
+    if (read(cnfd, sourcePath, sourcePathLen) != sourcePathLen) {
+        perror("read");
+        exit(1);
+    }
+
+    // Receive store path length from the client
+    size_t storePathLen;
+    if (read(cnfd, &storePathLen, sizeof(size_t)) != sizeof(size_t)) {
         perror("read");
         exit(1);
     }
 
     // Receive store path from the client
-    if (read(cnfd, storePath, storePathSize) < 0) {
+    if (read(cnfd, storePath, storePathLen) != storePathLen) {
         perror("read");
         exit(1);
     }
 }
 
+
 /*
- * Function to handle a client connection
+ * Function to handle client connections
  */
 void handle_client(int cnfd) {
     FILE *fp = NULL;
@@ -146,16 +160,17 @@ int main() {
 
         // Create a new process to handle the client
         pid_t pid = fork();
-        if (pid == -1) {
+
+        if (pid == 0) {
+            // Child process
+            close(skfd);  // Close the server socket in the child process
+            handle_client(cnfd);
+        } else if (pid < 0) {
             perror("fork");
             close(cnfd);
-            continue;
-        } else if (pid == 0) { // Child process
-            close(skfd); // Close the listener in the child process
-            handle_client(cnfd);
-        } else { // Parent process
-            close(cnfd); // Close the connection in the parent process
-            // Optionally, you can add code here to handle the parent process logic
+        } else {
+            // Parent process
+            close(cnfd);  // Close the client socket in the parent process
         }
     }
 
