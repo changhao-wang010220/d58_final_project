@@ -54,7 +54,7 @@ int setup_socket() {
 /*
  * Function to receive file paths from the client
  */
-void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char *storePath, size_t storePathSize) {
+void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char *storePath, size_t storePathSize, char *mode, size_t modeSize) {
     // Receive source path length from the client
     size_t sourcePathLen;
     if (read(cnfd, &sourcePathLen, sizeof(size_t)) != sizeof(size_t)) {
@@ -80,6 +80,71 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
         perror("read");
         exit(1);
     }
+    printf("***********1***********\n");
+    // Receive mode length from the client
+    size_t modeLen;
+    if (read(cnfd, &modeLen, sizeof(size_t)) != sizeof(size_t)) {
+        perror("read");
+        exit(1);
+    }
+    printf("***********2***********\n");
+    // Receive mode from the client
+    if (read(cnfd, mode, modeLen) != modeLen) {
+        perror("read");
+        exit(1);
+    }
+    printf("***********3***********\n");
+}
+
+void receive_file(int cnfd, const char *storePath) {
+    FILE *fp = NULL;
+    unsigned int fileSize;
+    int size, netSize;
+    char buf[10];
+
+    size = read(cnfd, (unsigned char *)&fileSize, sizeof(fileSize));
+    if (size != sizeof(fileSize)) {
+        printf("file size error!\n");
+        return;
+    }
+    printf("file size:%d\n", fileSize);
+
+    if ((size = write(cnfd, "OK", 2)) < 0) {
+        perror("write");
+        return;
+    }
+
+    fp = fopen(storePath, "w");
+    if (fp == NULL) {
+        perror("fopen");
+        return;
+    }
+
+    unsigned int fileSize2 = 0;
+    while (fileSize2 < fileSize) {
+        memset(fileBuf, 0, sizeof(fileBuf));
+        size = read(cnfd, fileBuf, sizeof(fileBuf));
+        if (size <= 0) {
+            perror("read");
+            fclose(fp);
+            close(cnfd);
+            exit(1);
+        }
+
+        unsigned int size2 = 0;
+        while (size2 < size) {
+            if ((netSize = fwrite(fileBuf + size2, 1, size - size2, fp)) < 0) {
+                perror("write");
+                fclose(fp);
+                close(cnfd);
+                exit(1);
+            }
+            size2 += netSize;
+        }
+        fileSize2 += size;
+    }
+    
+    fclose(fp);
 }
 
 /*
@@ -125,12 +190,20 @@ void handle_client(int cnfd) {
     // Receive file paths from the client
     char sourcePath[256];
     char storePath[256];
-    receive_file_paths(cnfd, sourcePath, sizeof(sourcePath), storePath, sizeof(storePath));
+    char modeString[256];
+    receive_file_paths(cnfd, sourcePath, sizeof(sourcePath), storePath, sizeof(storePath), modeString, sizeof(modeString));
     printf("Received source path: %s\n", sourcePath);
     printf("Received store path: %s\n", storePath);
+    printf("Received mode      : %s\n", modeString);
 
     // Send the file to the client
-    send_file_to_client(cnfd, sourcePath);
+    if (strcmp(modeString, "r") == 0)
+    {
+        send_file_to_client(cnfd, sourcePath);
+    }
+    else if (strcmp(modeString, "s") == 0){
+        receive_file(cnfd, storePath);
+    }
 
     close(cnfd);
     exit(0);
