@@ -80,20 +80,20 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
         perror("read");
         exit(1);
     }
-    printf("***********1***********\n");
+    char str[1024] = "./server_files/";
+    strcat(str, storePath);
+    strcpy(storePath, str);
     // Receive mode length from the client
     size_t modeLen;
     if (read(cnfd, &modeLen, sizeof(size_t)) != sizeof(size_t)) {
         perror("read");
         exit(1);
     }
-    printf("***********2***********\n");
     // Receive mode from the client
     if (read(cnfd, mode, modeLen) != modeLen) {
         perror("read");
         exit(1);
     }
-    printf("***********3***********\n");
 }
 
 void receive_file(int cnfd, const char *storePath) {
