@@ -80,9 +80,6 @@ void receive_file_paths(int cnfd, char *sourcePath, size_t sourcePathSize, char 
         perror("read");
         exit(1);
     }
-    char str[1024] = "./server_files/";
-    strcat(str, storePath);
-    strcpy(storePath, str);
     // Receive mode length from the client
     size_t modeLen;
     if (read(cnfd, &modeLen, sizeof(size_t)) != sizeof(size_t)) {
@@ -199,9 +196,15 @@ void handle_client(int cnfd) {
     // Send the file to the client
     if (strcmp(modeString, "r") == 0)
     {
+        char str[1024] = "./server_files/";
+        strcat(str, sourcePath);
+        strcpy(sourcePath, str);
         send_file_to_client(cnfd, sourcePath);
     }
     else if (strcmp(modeString, "s") == 0){
+        char str[1024] = "./server_files/";
+        strcat(str, storePath);
+        strcpy(storePath, str);
         receive_file(cnfd, storePath);
     }
 
